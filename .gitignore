@@ -21,3 +21,4 @@ logs/
 .idea/dataSources/
 .idea/dataSources.local.xml
 .idea/httpRequests/
+output
