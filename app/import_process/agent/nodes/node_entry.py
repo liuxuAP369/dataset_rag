@@ -1,66 +1,75 @@
-import os
 import sys
 from pathlib import Path
-
-import Path
 
 from app.core.logger import logger
 from app.import_process.agent.state import ImportGraphState
 from app.utils.task_utils import add_running_task, add_done_task
 
 
+def _start_entry_task(state: ImportGraphState, function_name: str) -> None:
+    """记录入口节点开始执行。"""
+    logger.info(f">>>[{function_name}]开始执行了，现在的状态为：{state} ")
+    add_running_task(state["task_id"], function_name)
+
+
+def _finish_entry_task(state: ImportGraphState, function_name: str) -> None:
+    """记录入口节点结束执行。"""
+    logger.info(f">>>[{function_name}]执行结束了，现在的状态为：{state} ")
+    add_done_task(state["task_id"], function_name)
+
+
+def _get_local_file_path(state: ImportGraphState, function_name: str) -> str:
+    """获取并校验输入文件路径。"""
+    local_file_path = state["local_file_path"]
+    if not local_file_path:
+        logger.error(f"[{function_name}]检查发现没有输入文件，无法解析")
+        return ""
+    return local_file_path
+
+
+def _write_file_title(state: ImportGraphState, local_file_path: str) -> None:
+    """将文件标题写回状态，供后续节点兜底使用。"""
+    state["file_title"] = Path(local_file_path).stem
+
+
+def _apply_file_route(state: ImportGraphState, local_file_path: str, function_name: str) -> None:
+    """根据文件类型设置入口节点的路由状态。"""
+    file_suffix = Path(local_file_path).suffix.lower()
+
+    if file_suffix == ".md":
+        state["is_md_read_enabled"] = True
+        state["is_pdf_read_enabled"] = False
+        state["md_path"] = local_file_path
+        return
+
+    if file_suffix == ".pdf":
+        state["is_pdf_read_enabled"] = True
+        state["is_md_read_enabled"] = False
+        state["pdf_path"] = local_file_path
+        return
+
+    logger.error(f"[{function_name}]文件格式非md或者pdf，无法解析")
+
+
 def node_entry(state: ImportGraphState) -> ImportGraphState:
     """
     节点: 入口节点 (node_entry)
-    为什么叫这个名字: 作为图的 Entry Point，负责接收外部输入并决定流程走向。
-    未来要实现:
-    1. 进入节点的日志输出【节点+核心参数】
-        记录任务状态【哪个任务开始了】 -》 给前端推送信息（埋点）
-    2. 参数校验
-     local_file_path ->没有文件 ->end
-     local_dir ->没有文件夹 ->创建一个临时文件夹
-    判断文件类型 (PDF/MD)。
-
-    3. 解析文件类型，修改state对应参数 local_file_path 设置 state 中的路由标记
-    local_file_path ->md |pdf
-    -> is_pdf_read_enabled / is_md_read_enabled
-    -> md_path |pdf_path |
-    -> file_title = 读取文件名
-
-    4. 结束节点的日志输出【节点+核心参数】
-        记录任务状态【哪个任务结束了】-> 给前端推送消息（埋点）
+    作用:
+    1. 记录节点开始/结束日志和任务状态
+    2. 校验输入文件路径
+    3. 根据输入文件类型设置路由标记
+    4. 回写 file_title，供后续节点兜底使用
     """
-    #  1. 进入节点的日志输出【节点+核心参数】 记录任务状态【哪个任务开始了】 -》 给前端推送信息（埋点）
+    function_name = sys._getframe().f_code.co_name
+    _start_entry_task(state, function_name)
 
-    function_name = sys._getframe().f_code.co_name # 当前帧 的name 就是函数名
-    logger.info(f">>>[{function_name}]开始执行了，现在的状态为：{state} ")
-    add_running_task(state['task_id'],function_name)
+    try:
+        local_file_path = _get_local_file_path(state, function_name)
+        if not local_file_path:
+            return state
 
-    # 2.进行必要的非空校验判定
-    local_file_path = state['local_file_path']
-    if not local_file_path:
-        logger.error(f"[{function_name}]检查发现没有输入文件，无法解析")
+        _write_file_title(state, local_file_path)
+        _apply_file_route(state, local_file_path, function_name)
         return state
-
-    #3.判定并完成state 属性赋值
-    if local_file_path.endswith(".md"):
-        #处理md
-        state['is_md_read_enabled'] = True
-        state['md_path'] = local_file_path
-    elif local_file_path.endswith(".pdf"):
-        state['is_pdf_read_enabled'] = True
-        state['pdf_path'] = local_file_path
-    else:
-        logger.error(f"[{function_name}]文件格式非md或者pdf，无法解析")
-
-    #提取file_title /xx/xxx/abc.pdf abc  ->为了后期到模型没有识别出来当前文件对应的item_name ->file_name兜底
-    # abc.pdf os.pah
-    file_title_os = os.path.basename(local_file_path).split(".")[0]
-    file_title = Path(local_file_path).stem # 去掉后缀文件名
-
-    #4.结束节点的日志输出【节点+核心参数】 记录任务状态【哪个任务结束了】-> 给前端推送消息（埋点）
-    logger.info(f">>>[{function_name}]执行结束了，现在的状态为：{state} ")
-    add_done_task(state['task_id'], function_name)
-
-
-    return state
+    finally:
+        _finish_entry_task(state, function_name)
