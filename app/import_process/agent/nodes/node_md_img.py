@@ -172,7 +172,6 @@ def step_2_scan_images(md_content:str, images_dir_obj:Path) -> List[Tuple[str, s
     return targets
 
 
-
 def node_md_img(state: ImportGraphState) -> ImportGraphState:
     """
     节点: 图片处理 (node_md_img)
@@ -189,7 +188,7 @@ def node_md_img(state: ImportGraphState) -> ImportGraphState:
     # 1. 校验并且获取本次操作的数据
     #         参数： state  -> md_path md_content
     #         响应： 1. 校验后的md_content  2.md路径对象  3. 获取图片的文件夹 images
-    md_content, md_path_obj, images_dir_obj = step_1_get_content(state)
+    md_content, md_path_obj , images_dir_obj = step_1_get_content(state)
     # 如果没有图片，则直接返回 state
     if not images_dir_obj.exists():
         logger.info(f">>> [{function_name}]没有图片，直接返回 state ！")
@@ -199,4 +198,53 @@ def node_md_img(state: ImportGraphState) -> ImportGraphState:
     targets = step_2_scan_images(md_content, images_dir_obj)
     #         参数： 1. md_content 2. images图片的文件夹地址
     #         响应： [(图片名,图片地址,(上文,下文))]
+
+    # 3. 进行图片内容的总结和处理 （视觉模型）
+    # 参数： 第二次的响应 [(图片名,图片地址,(上文,下文))]   || md文件的名称（提示词中 md文件名就是存储图片images的文件名）
+    # 响应： {图片名:总结,......}
+    summaries = step_3_generate_img_summaries(targets, md_path_obj.stem)
+    # 4. 上传图片到minio同时替换md中的图片 （描述 + url地址）
+    #         参数：minio_client || {图片名:总结,......} || [(图片名,图片地址,(上文,下文))] (minio) || md_content 旧 || md文件的名称（提示词中 md文件名就是存储图片images的文件名）
+    #         响应：new_md_content
+    #         state[md_content] = new_md_content
+    new_md_content = step_4_upload_images_and_replace_md(summaries, targets, md_content, md_path_obj.stem)
+
+    # 5. 新的md内容替换和保存修改装
+    #  参数：new_md_content , 原md地址 -》 xx.md -> xx_new.md
+    #  响应：新的md的地址 new_md_path
+    #  state[md_path] = new_new_md_path
+    new_md_file_path = step_5_replace_md_and_save(new_md_content, md_path_obj)
+    #  md_path -> 新的地址
+    #  md_content -> 新的内容
+    state["md_path"] = new_md_file_path
+    state["md_content"] = new_md_content
+    logger.info(f">>> [{function_name}]开始结束了！现在的状态为：{state}")
+    add_done_task(state['task_id'], function_name)
     return state
+
+
+
+if __name__ == "__main__":
+    """本地测试入口：单独运行该文件时，执行MD图片处理全流程测试"""
+    from app.utils.path_util import PROJECT_ROOT
+    logger.info(f"本地测试 - 项目根目录：{PROJECT_ROOT}")
+
+    # 测试MD文件路径（需手动将测试文件放入对应目录）
+    test_md_name = os.path.join(r"output\hl3040网络说明书", "hl3040网络说明书.md")
+    test_md_path = os.path.join(PROJECT_ROOT, test_md_name)
+
+    # 校验测试文件是否存在
+    if not os.path.exists(test_md_path):
+        logger.error(f"本地测试 - 测试文件不存在：{test_md_path}")
+        logger.info("请检查文件路径，或手动将测试MD文件放入项目根目录的output目录下")
+    else:
+        # 构造测试状态对象，模拟流程入参
+        test_state = {
+            "md_path": test_md_path,
+            "task_id": "test_task_123456",
+            "md_content": ""
+        }
+        logger.info("开始本地测试 - MD图片处理全流程")
+        # 执行核心处理流程
+        result_state = node_md_img(test_state)
+        logger.info(f"本地测试完成 - 处理结果状态：{result_state}")
