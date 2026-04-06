@@ -36,9 +36,9 @@ def get_bge_m3_ef():
     try:
         # 初始化BGE-M3模型，开启原生L2归一化（适配Milvus IP内积检索）
         _bge_m3_ef = BGEM3EmbeddingFunction(
-            model_name=model_name,
-            device=device,
-            use_fp16=use_fp16,
+            model_name=model_name, #  # "BAAI/bge-m3" -》 自动去网上下载！！  HuggingFace
+            device=device,  # 设备名称
+            use_fp16=use_fp16, # 是否开启16进度加速！！
             normalize_embeddings=True  # 模型原生对稠密+稀疏向量做L2归一化
         )
         logger.success("BGE-M3模型初始化成功，已开启原生L2归一化")
