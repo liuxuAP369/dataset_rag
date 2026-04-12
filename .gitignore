@@ -22,3 +22,7 @@ logs/
 .idea/dataSources.local.xml
 .idea/httpRequests/
 output
+
+# Docker local artifacts
+/docker/*
+!/docker/docker-compose.yml
